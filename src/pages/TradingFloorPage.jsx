@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -15,10 +15,16 @@ import {
   Sliders, 
   RefreshCw,
   Award,
-  ChevronRight
+  ChevronRight,
+  Search,
+  Plus,
+  Key,
+  Globe,
+  Radio
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import AgentOrb from '../components/AgentOrb';
+import { fetchStockCandles, fetchStockNews } from '../services/realStockService';
 
 export default function TradingFloorPage({ setActiveTab }) {
   const { 
@@ -30,17 +36,81 @@ export default function TradingFloorPage({ setActiveTab }) {
     followAgentAdvice, 
     executeTrade, 
     cashBalance, 
-    holdings 
+    holdings,
+    isFetchingLive,
+    lastUpdated,
+    marketDataSource,
+    refreshStockPrices,
+    addStockSymbol,
+    customApiKey,
+    setCustomApiKey,
+    showToast
   } = useGame();
 
   const [tradeAction, setTradeAction] = useState('BUY'); // 'BUY' | 'SELL'
   const [sharesInput, setSharesInput] = useState('10');
+  const [newTickerInput, setNewTickerInput] = useState('');
+  const [timeframe, setTimeframe] = useState('1D'); // '1D' | '1W' | '1M'
+  const [chartCandles, setChartCandles] = useState([]);
+  const [isChartLoading, setIsChartLoading] = useState(false);
+  const [liveNews, setLiveNews] = useState(null);
+  const [showApiModal, setShowApiModal] = useState(false);
+  const [tempApiKey, setTempApiKey] = useState(customApiKey);
 
-  const selectedStock = stocks.find(s => s.symbol === selectedStockSymbol) || stocks[0];
+  const selectedStock = stocks.find(s => s.symbol === selectedStockSymbol) || stocks[0] || {
+    symbol: 'NVDA',
+    name: 'NVIDIA Corporation',
+    price: 128.50,
+    basePrice: 128.50,
+    changePercent: 0,
+    sparkline: [128.5],
+    sector: 'Technology',
+    volatility: 'HIGH',
+    logoColor: '#76B900'
+  };
+
   const currentHolding = holdings.find(h => h.symbol === selectedStock.symbol);
 
   const numShares = parseFloat(sharesInput) || 0;
   const estimatedTotal = +(numShares * selectedStock.price).toFixed(2);
+
+  // Load real candle chart points when selected stock or timeframe changes
+  useEffect(() => {
+    let isMounted = true;
+    async function loadCandles() {
+      setIsChartLoading(true);
+      try {
+        const points = await fetchStockCandles(selectedStock.symbol, timeframe, customApiKey);
+        if (isMounted && points && points.length > 0) {
+          setChartCandles(points);
+        }
+      } catch (err) {
+        if (isMounted) {
+          setChartCandles(selectedStock.sparkline || [selectedStock.basePrice, selectedStock.price]);
+        }
+      } finally {
+        if (isMounted) setIsChartLoading(false);
+      }
+    }
+
+    loadCandles();
+    return () => { isMounted = false; };
+  }, [selectedStock.symbol, timeframe, selectedStock.price, customApiKey]);
+
+  // Load real company news for selected stock
+  useEffect(() => {
+    let isMounted = true;
+    async function loadNews() {
+      try {
+        const news = await fetchStockNews(selectedStock.symbol, customApiKey);
+        if (isMounted) setLiveNews(news);
+      } catch (e) {
+        if (isMounted) setLiveNews({ headline: selectedStock.news || 'Market news loading...', datetime: 'Live' });
+      }
+    }
+    loadNews();
+    return () => { isMounted = false; };
+  }, [selectedStock.symbol, customApiKey]);
 
   const handleManualTrade = (e) => {
     e.preventDefault();
@@ -48,37 +118,96 @@ export default function TradingFloorPage({ setActiveTab }) {
     executeTrade(selectedStock.symbol, tradeAction, numShares);
   };
 
+  const handleAddTicker = async (e) => {
+    e.preventDefault();
+    if (!newTickerInput.trim()) return;
+    const ok = await addStockSymbol(newTickerInput.trim());
+    if (ok) setNewTickerInput('');
+  };
+
+  const handleSaveApiKey = (e) => {
+    e.preventDefault();
+    setCustomApiKey(tempApiKey.trim());
+    setShowApiModal(false);
+    showToast('Market API Token saved successfully! Fetching fresh quotes...', 'success');
+  };
+
+  // Sparkline points for SVG rendering
+  const activeChartPoints = chartCandles.length >= 3 ? chartCandles : (selectedStock.sparkline || [selectedStock.price, selectedStock.price]);
+
   return (
     <div className="trading-floor-container">
-      {/* Top News & Signal Alert Bar */}
+      {/* Top Live Market Status & Control Bar */}
       <div className="market-news-ticker-bar">
         <div className="news-badge-pill">
-          <Zap size={14} className="text-gold" />
-          <span>MARKET TICKER</span>
+          <Radio size={14} className="text-emerald animate-pulse" />
+          <span>LIVE MARKET FEED</span>
         </div>
+
         <div className="news-headline-text">
-          <strong>{selectedStock.symbol} News Flash:</strong> {selectedStock.news}
+          <strong>{selectedStock.symbol} Market Flash:</strong> {liveNews ? liveNews.headline : (selectedStock.news || 'Loading real financial feed...')}
         </div>
-        <div className="volatility-tag">
-          VOLATILITY: <span className="vol-val">{selectedStock.volatility}</span>
+
+        <div className="market-feed-controls">
+          <div className="feed-sync-info font-mono text-xs">
+            <span className="sync-dot live" />
+            <span>{marketDataSource} &bull; {lastUpdated}</span>
+          </div>
+
+          <button 
+            type="button" 
+            className={`btn-sync-refresh ${isFetchingLive ? 'spinning' : ''}`}
+            onClick={refreshStockPrices}
+            title="Refresh Live Market Quotes"
+            disabled={isFetchingLive}
+          >
+            <RefreshCw size={13} />
+            <span>{isFetchingLive ? 'Syncing...' : 'Sync Live'}</span>
+          </button>
+
+          <button 
+            type="button" 
+            className="btn-api-settings"
+            onClick={() => setShowApiModal(true)}
+            title="Configure Real Market API Token"
+          >
+            <Key size={13} />
+            <span>API Feed</span>
+          </button>
         </div>
       </div>
 
       {/* Main Trading Floor Grid Layout */}
       <div className="trading-floor-grid">
-        {/* Left Column: Stocks Watchlist & Ticker Grid */}
+        {/* Left Column: Stocks Watchlist & Real Ticker Search */}
         <div className="stocks-ticker-panel">
           <div className="panel-sub-header">
             <span className="panel-title">LIVE MARKET ASSETS</span>
             <span className="live-pulse-badge">
-              <span className="pulse-dot" /> 3.5s TICKS
+              <span className="pulse-dot" /> REAL-TIME QUOTES
             </span>
           </div>
 
+          {/* Add Any Real Stock Symbol Search Bar */}
+          <form onSubmit={handleAddTicker} className="add-ticker-form">
+            <Search size={14} className="search-icon-mini text-dim" />
+            <input 
+              type="text" 
+              placeholder="Add Ticker (e.g. META, GOOGL)..."
+              value={newTickerInput}
+              onChange={(e) => setNewTickerInput(e.target.value.toUpperCase())}
+              className="input-add-ticker font-mono"
+            />
+            <button type="submit" className="btn-add-ticker" title="Add to Live Watchlist">
+              <Plus size={14} />
+            </button>
+          </form>
+
+          {/* Stocks Scroll List */}
           <div className="stocks-scroll-list">
             {stocks.map((stock) => {
               const isSelected = stock.symbol === selectedStock.symbol;
-              const isPositive = stock.changePercent >= 0;
+              const isPositive = (stock.changePercent || 0) >= 0;
               const userOwns = holdings.find(h => h.symbol === stock.symbol);
 
               return (
@@ -101,10 +230,10 @@ export default function TradingFloorPage({ setActiveTab }) {
                   </div>
 
                   <div className="ticker-right-price">
-                    <div className="price-val font-mono">${stock.price.toFixed(2)}</div>
+                    <div className="price-val font-mono">${(stock.price || 0).toFixed(2)}</div>
                     <div className={`change-pill ${isPositive ? 'pos' : 'neg'}`}>
                       {isPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                      <span>{isPositive ? '+' : ''}{stock.changePercent}%</span>
+                      <span>{isPositive ? '+' : ''}{(stock.changePercent || 0).toFixed(2)}%</span>
                     </div>
                   </div>
                 </div>
@@ -119,37 +248,65 @@ export default function TradingFloorPage({ setActiveTab }) {
           <div className="stock-chart-card">
             <div className="chart-header-row">
               <div className="chart-title-group">
-                <h2>{selectedStock.name} ({selectedStock.symbol})</h2>
+                <div className="chart-title-flex">
+                  <h2>{selectedStock.name} ({selectedStock.symbol})</h2>
+                  <span className="live-tag-pill">● REAL QUOTE</span>
+                </div>
                 <span className="sector-tag">{selectedStock.sector}</span>
               </div>
 
-              <div className="chart-price-group">
-                <div className="big-price font-mono font-bold">
-                  ${selectedStock.price.toFixed(2)}
+              <div className="chart-price-and-timeframe">
+                <div className="chart-price-group">
+                  <div className="big-price font-mono font-bold">
+                    ${(selectedStock.price || 0).toFixed(2)}
+                  </div>
+                  <div className={`chart-delta ${(selectedStock.changePercent || 0) >= 0 ? 'pos' : 'neg'}`}>
+                    {(selectedStock.changePercent || 0) >= 0 ? '+' : ''}{(selectedStock.changePercent || 0).toFixed(2)}%
+                    <span className="change-abs font-mono text-xs">
+                      ({(selectedStock.change || 0) >= 0 ? '+' : ''}${(selectedStock.change || 0).toFixed(2)})
+                    </span>
+                  </div>
                 </div>
-                <div className={`chart-delta ${selectedStock.changePercent >= 0 ? 'pos' : 'neg'}`}>
-                  {selectedStock.changePercent >= 0 ? '+' : ''}{selectedStock.changePercent}%
+
+                {/* Real Timeframe Selector */}
+                <div className="timeframe-pills">
+                  {['1D', '1W', '1M'].map((tf) => (
+                    <button
+                      key={tf}
+                      type="button"
+                      className={`btn-tf ${timeframe === tf ? 'active' : ''}`}
+                      onClick={() => setTimeframe(tf)}
+                    >
+                      {tf}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
 
-            {/* Simulated Live SVG Trend Chart */}
+            {/* Real SVG Historical Trend Chart */}
             <div className="svg-chart-container">
+              {isChartLoading && (
+                <div className="chart-loading-overlay">
+                  <RefreshCw size={20} className="spinning text-emerald" />
+                  <span>Loading Real Market Trajectory...</span>
+                </div>
+              )}
               <svg className="live-chart-svg" viewBox="0 0 500 160" preserveAspectRatio="none">
                 <defs>
                   <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#10B981" stopOpacity="0.3" />
-                    <stop offset="100%" stopColor="#10B981" stopOpacity="0.0" />
+                    <stop offset="0%" stopColor={(selectedStock.changePercent || 0) >= 0 ? '#10B981' : '#F43F5E'} stopOpacity="0.25" />
+                    <stop offset="100%" stopColor={(selectedStock.changePercent || 0) >= 0 ? '#10B981' : '#F43F5E'} stopOpacity="0.0" />
                   </linearGradient>
                 </defs>
 
                 {(() => {
-                  const min = Math.min(...selectedStock.sparkline);
-                  const max = Math.max(...selectedStock.sparkline);
+                  const min = Math.min(...activeChartPoints);
+                  const max = Math.max(...activeChartPoints);
                   const range = max - min || 1;
-                  const points = selectedStock.sparkline
+                  const points = activeChartPoints
                     .map((val, idx) => {
-                      const x = (idx / (selectedStock.sparkline.length - 1)) * 480 + 10;
+                      const x = (idx / (activeChartPoints.length - 1)) * 480 + 10;
                       const y = 140 - ((val - min) / range) * 110;
                       return `${x},${y}`;
                     })
@@ -162,9 +319,10 @@ export default function TradingFloorPage({ setActiveTab }) {
                       <polygon fill="url(#chartGrad)" points={fillPoints} />
                       <polyline
                         fill="none"
-                        stroke={selectedStock.changePercent >= 0 ? '#10B981' : '#F43F5E'}
+                        stroke={(selectedStock.changePercent || 0) >= 0 ? '#10B981' : '#F43F5E'}
                         strokeWidth="3"
                         strokeLinecap="round"
+                        strokeLinejoin="round"
                         points={points}
                       />
                     </>
@@ -173,14 +331,17 @@ export default function TradingFloorPage({ setActiveTab }) {
               </svg>
             </div>
 
+            {/* Real Day Market Metrics Strip */}
             <div className="chart-metrics-strip">
-              <div className="c-stat">Base: <strong>${selectedStock.basePrice.toFixed(2)}</strong></div>
-              <div className="c-stat">Volatility: <strong>{selectedStock.volatility}</strong></div>
-              <div className="c-stat">Agent Win Probability: <strong className="text-cyan">{activeAgent.stats.accuracy}%</strong></div>
+              <div className="c-stat">Day High: <strong className="font-mono text-emerald">${(selectedStock.high || selectedStock.price).toFixed(2)}</strong></div>
+              <div className="c-stat">Day Low: <strong className="font-mono text-pink">${(selectedStock.low || selectedStock.price).toFixed(2)}</strong></div>
+              <div className="c-stat">Prev Close: <strong className="font-mono">${(selectedStock.prevClose || selectedStock.basePrice || selectedStock.price).toFixed(2)}</strong></div>
+              <div className="c-stat">Open: <strong className="font-mono">${(selectedStock.open || selectedStock.price).toFixed(2)}</strong></div>
+              <div className="c-stat">Agent Signal Accuracy: <strong className="text-cyan">{activeAgent.stats.accuracy}%</strong></div>
             </div>
           </div>
 
-          {/* AGENT ADVISORY DECISION HUD (Core Game Feature) */}
+          {/* AGENT ADVISORY DECISION HUD (Calibrated with Real Market Data) */}
           {agentAdvice && (
             <div className="agent-advice-hud-card">
               <div className="hud-top-strip">
@@ -188,7 +349,7 @@ export default function TradingFloorPage({ setActiveTab }) {
                   <AgentOrb color={activeAgent.orbColor || 'violet'} size="sm" pulse={true} />
                   <div>
                     <div className="agent-hud-name">
-                      {activeAgent.name}'S DECISION SIGNAL
+                      {activeAgent.name}'S REAL-MARKET SIGNAL
                       <span className="badge-confidence">{agentAdvice.confidence} CONFIDENCE</span>
                     </div>
                     <div className="agent-hud-title">{activeAgent.title} &bull; {activeAgent.skillName}</div>
@@ -258,9 +419,9 @@ export default function TradingFloorPage({ setActiveTab }) {
 
           <form onSubmit={handleManualTrade} className="terminal-form">
             <div className="form-item">
-              <label>Market Execution Price</label>
+              <label>Live Market Execution Price</label>
               <div className="read-only-price font-mono">
-                ${selectedStock.price.toFixed(2)} USD
+                ${(selectedStock.price || 0).toFixed(2)} USD
               </div>
             </div>
 
@@ -310,7 +471,7 @@ export default function TradingFloorPage({ setActiveTab }) {
               type="submit"
               className={`btn-execute-order ${tradeAction === 'BUY' ? 'buy' : 'sell'}`}
             >
-              {tradeAction === 'BUY' ? `Buy ${sharesInput || 0} ${selectedStock.symbol}` : `Sell ${sharesInput || 0} ${selectedStock.symbol}`}
+              {tradeAction === 'BUY' ? `Buy ${sharesInput || 0} ${selectedStock.symbol} ($${estimatedTotal.toLocaleString()})` : `Sell ${sharesInput || 0} ${selectedStock.symbol}`}
             </button>
           </form>
 
@@ -335,6 +496,46 @@ export default function TradingFloorPage({ setActiveTab }) {
           </div>
         </div>
       </div>
+
+      {/* API Key Settings Modal */}
+      {showApiModal && (
+        <div className="modal-backdrop-overlay" onClick={() => setShowApiModal(false)}>
+          <div className="modal-glass-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head-row">
+              <div className="modal-title-wrap">
+                <Globe size={18} className="text-cyan" />
+                <h3>Real-Time Financial Market Feed Settings</h3>
+              </div>
+              <button className="btn-close-modal" onClick={() => setShowApiModal(false)}>&times;</button>
+            </div>
+
+            <p className="modal-desc-p">
+              The platform connects to live financial data streams (Finnhub & Yahoo Finance) to deliver authentic, real-world stock market quotes, prices, and daily metrics.
+            </p>
+
+            <form onSubmit={handleSaveApiKey} className="api-config-form">
+              <div className="form-item">
+                <label>Custom Finnhub API Key (Optional)</label>
+                <input 
+                  type="text" 
+                  placeholder="Enter free API key or leave blank for default sandbox feed"
+                  value={tempApiKey}
+                  onChange={(e) => setTempApiKey(e.target.value)}
+                  className="input-api-token font-mono"
+                />
+                <span className="hint-text">
+                  A free token is included by default. You can also paste your own free key from <a href="https://finnhub.io" target="_blank" rel="noreferrer">Finnhub.io</a> for higher rate limits.
+                </span>
+              </div>
+
+              <div className="modal-btn-row">
+                <button type="button" className="btn-secondary" onClick={() => setShowApiModal(false)}>Cancel</button>
+                <button type="submit" className="btn-primary">Save & Sync Market Feed</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

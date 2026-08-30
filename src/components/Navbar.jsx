@@ -11,7 +11,8 @@ import {
   Sparkles,
   Zap,
   ShieldCheck,
-  Award
+  Award,
+  Radio
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import AgentOrb from './AgentOrb';
@@ -22,11 +23,12 @@ export default function Navbar({ activeTab, setActiveTab }) {
     gemBalance, 
     activeAgent, 
     unlockedAgentIds, 
-    claimFreeDemoGrant 
+    claimFreeDemoGrant,
+    lastUpdated
   } = useGame();
 
   const navItems = [
-    { id: 'trading', label: 'Trading Floor', icon: TrendingUp, badge: 'LIVE' },
+    { id: 'trading', label: 'Trading Floor', icon: TrendingUp, badge: 'LIVE REAL' },
     { id: 'forge', label: 'Agent Forge', icon: Bot, badge: `${unlockedAgentIds.length}/6 Unlocked` },
     { id: 'missions', label: 'Missions & Gems', icon: Target, badge: '💎 REWARDS' },
     { id: 'portfolio', label: 'Portfolio', icon: PieChart },
@@ -43,8 +45,8 @@ export default function Navbar({ activeTab, setActiveTab }) {
             <Bot size={16} className="brand-sub-bot text-cyan" />
           </div>
           <div className="brand-text-col">
-            <span className="brand-title">NEXORA <span className="brand-stock-tag">STOCKS</span></span>
-            <span className="brand-subline">AI-Agent Trading Simulator</span>
+            <span className="brand-title">NEXORA <span className="brand-stock-tag">LIVE STOCKS</span></span>
+            <span className="brand-subline">Real-Time Market & AI Agent Floor</span>
           </div>
         </div>
 

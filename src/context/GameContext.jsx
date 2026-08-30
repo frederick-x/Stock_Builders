@@ -1,10 +1,15 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import confetti from 'canvas-confetti';
 import { 
   AGENTS_CATALOG, 
   INITIAL_STOCKS, 
   INITIAL_MISSIONS 
 } from '../services/gameData';
+import { 
+  fetchRealQuote, 
+  fetchStockNews, 
+  DEFAULT_STOCK_METADATA 
+} from '../services/realStockService';
 
 const GameContext = createContext(null);
 
@@ -31,9 +36,16 @@ export function GameProvider({ children }) {
     return saved || 'agent-scout';
   });
 
-  // 3. Stocks Market Ticker
-  const [stocks, setStocks] = useState(INITIAL_STOCKS);
+  // 3. Stocks Market Ticker & Real Live Data States
+  const [stocks, setStocks] = useState(() => {
+    const saved = localStorage.getItem('NEXORA_STOCKS_DATA');
+    return saved ? JSON.parse(saved) : INITIAL_STOCKS;
+  });
   const [selectedStockSymbol, setSelectedStockSymbol] = useState('NVDA');
+  const [isFetchingLive, setIsFetchingLive] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(new Date().toLocaleTimeString());
+  const [marketDataSource, setMarketDataSource] = useState('Real-Time Market Feed');
+  const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('NEXORA_API_KEY') || '');
 
   // 4. Portfolio Holdings
   const [holdings, setHoldings] = useState(() => {
@@ -86,38 +98,116 @@ export function GameProvider({ children }) {
     localStorage.setItem('NEXORA_MISSIONS', JSON.stringify(missions));
     localStorage.setItem('NEXORA_TRADE_LOG', JSON.stringify(tradeLog));
     localStorage.setItem('NEXORA_TOTAL_PROFIT', String(totalRealizedProfit));
-  }, [cashBalance, gemBalance, unlockedAgentIds, activeAgentId, holdings, missions, tradeLog, totalRealizedProfit]);
+    localStorage.setItem('NEXORA_STOCKS_DATA', JSON.stringify(stocks));
+    if (customApiKey) localStorage.setItem('NEXORA_API_KEY', customApiKey);
+  }, [cashBalance, gemBalance, unlockedAgentIds, activeAgentId, holdings, missions, tradeLog, totalRealizedProfit, stocks, customApiKey]);
 
   // Current Active Agent Object
   const activeAgent = AGENTS_CATALOG.find(a => a.id === activeAgentId) || AGENTS_CATALOG[0];
 
-  // Dynamic Live Market Simulator (Ticks every 3.5s)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setStocks(prevStocks => 
-        prevStocks.map(stock => {
-          // Volatility factor
-          let volMultiplier = 0.5;
-          if (stock.volatility === 'HIGH') volMultiplier = 1.0;
-          if (stock.volatility === 'VERY HIGH') volMultiplier = 1.8;
+  // Fetch real-time market data quotes for all active watchlist stocks
+  const refreshStockPrices = useCallback(async () => {
+    setIsFetchingLive(true);
+    try {
+      const updated = await Promise.all(
+        stocks.map(async (stock) => {
+          try {
+            const quote = await fetchRealQuote(stock.symbol, customApiKey);
+            const prevSpark = Array.isArray(stock.sparkline) && stock.sparkline.length > 0 ? stock.sparkline : [quote.basePrice || quote.price];
+            const newSparkline = [...prevSpark.slice(-14), quote.price];
 
-          const randomDelta = (Math.random() - 0.48) * volMultiplier;
-          const newPrice = Math.max(1, +(stock.price * (1 + randomDelta / 100)).toFixed(2));
-          const changePercent = +(((newPrice - stock.basePrice) / stock.basePrice) * 100).toFixed(2);
-          const newSparkline = [...stock.sparkline.slice(1), newPrice];
-
-          return {
-            ...stock,
-            price: newPrice,
-            changePercent,
-            sparkline: newSparkline
-          };
+            return {
+              ...stock,
+              price: quote.price,
+              basePrice: quote.basePrice,
+              change: quote.change,
+              changePercent: quote.changePercent,
+              high: quote.high,
+              low: quote.low,
+              open: quote.open,
+              prevClose: quote.prevClose,
+              sparkline: newSparkline,
+              isLive: quote.isLive,
+              lastUpdated: new Date(quote.timestamp).toLocaleTimeString()
+            };
+          } catch (e) {
+            return stock;
+          }
         })
       );
-    }, 3500);
+
+      setStocks(updated);
+      setLastUpdated(new Date().toLocaleTimeString());
+      setMarketDataSource('Real-Time Financial Markets (Live)');
+    } catch (err) {
+      console.error('Market quote sync error:', err);
+    } finally {
+      setIsFetchingLive(false);
+    }
+  }, [stocks, customApiKey]);
+
+  // Real-time market feed polling loop (Every 10 seconds)
+  useEffect(() => {
+    refreshStockPrices();
+    const interval = setInterval(() => {
+      refreshStockPrices();
+    }, 10000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [customApiKey]);
+
+  // Add custom ticker symbol to watchlist
+  const addStockSymbol = async (symbolStr) => {
+    const sym = symbolStr.toUpperCase().trim();
+    if (!sym) return false;
+    if (stocks.some(s => s.symbol === sym)) {
+      setSelectedStockSymbol(sym);
+      showToast(`${sym} is already in your active watchlist!`, 'info');
+      return true;
+    }
+
+    try {
+      setIsFetchingLive(true);
+      const quote = await fetchRealQuote(sym, customApiKey);
+      const meta = DEFAULT_STOCK_METADATA[sym] || {
+        name: `${sym} Corporation`,
+        sector: 'Equities',
+        logoColor: '#38BDF8',
+        defaultPrice: quote.price
+      };
+
+      const newsItem = await fetchStockNews(sym, customApiKey);
+
+      const newStock = {
+        symbol: sym,
+        name: meta.name,
+        sector: meta.sector,
+        price: quote.price,
+        basePrice: quote.basePrice,
+        change: quote.change,
+        changePercent: quote.changePercent,
+        high: quote.high,
+        low: quote.low,
+        open: quote.open,
+        prevClose: quote.prevClose,
+        sparkline: [quote.basePrice, quote.price],
+        volatility: 'HIGH',
+        logoColor: meta.logoColor,
+        news: newsItem.headline,
+        isLive: quote.isLive,
+      };
+
+      setStocks(prev => [newStock, ...prev]);
+      setSelectedStockSymbol(sym);
+      showToast(`Added ${sym} (${meta.name}) with live market data!`, 'success');
+      return true;
+    } catch (e) {
+      showToast(`Could not fetch data for ticker: ${sym}`, 'warning');
+      return false;
+    } finally {
+      setIsFetchingLive(false);
+    }
+  };
 
   // Passive Yield for QUANTUM agent
   useEffect(() => {
@@ -133,8 +223,10 @@ export function GameProvider({ children }) {
   // Generate Real-Time Decision Advice from Active Agent
   useEffect(() => {
     const selectedStock = stocks.find(s => s.symbol === selectedStockSymbol) || stocks[0];
+    if (!selectedStock) return;
+
     const isDip = selectedStock.changePercent <= -0.5 || selectedStock.price < selectedStock.basePrice;
-    const isRally = selectedStock.changePercent >= 2.0;
+    const isRally = selectedStock.changePercent >= 1.5;
 
     let action = isDip ? 'BUY' : (isRally ? 'SELL' : 'BUY');
     let shares = Math.max(1, Math.floor(1500 / selectedStock.price));
@@ -143,20 +235,20 @@ export function GameProvider({ children }) {
     let reason = '';
     if (activeAgent.id === 'agent-scout') {
       reason = isDip 
-        ? `${selectedStock.symbol} has dropped below base rate. SCOUT recommends buying ${shares} shares on the dip to start Mission #1!`
-        : `${selectedStock.symbol} is gaining upward momentum. Buy ${shares} shares to ride the wave.`;
+        ? `${selectedStock.symbol} has pulled back to $${selectedStock.price.toFixed(2)} (${selectedStock.changePercent}% today). SCOUT recommends buying ${shares} shares on the dip to start Mission #1!`
+        : `${selectedStock.symbol} is gaining upward real market momentum at $${selectedStock.price.toFixed(2)} (+${selectedStock.changePercent}%). Buy ${shares} shares to ride the wave.`;
     } else if (activeAgent.id === 'agent-oracle') {
       reason = isDip
-        ? `ORACLE Neural Forecast: 88% confidence breakout cycle detected within 15 seconds! High conviction entry on ${selectedStock.symbol}.`
-        : `ORACLE Price Ceiling warning: High probability of temporary resistance. Lock in partial profit on ${selectedStock.symbol}.`;
+        ? `ORACLE Neural Forecast: 88% confidence breakout cycle detected! High conviction real-market entry on ${selectedStock.symbol} at $${selectedStock.price.toFixed(2)}.`
+        : `ORACLE Price Ceiling warning: High resistance near today's high ($${(selectedStock.high || selectedStock.price).toFixed(2)}). Lock in partial profit on ${selectedStock.symbol}.`;
     } else if (activeAgent.id === 'agent-quantum') {
-      reason = `QUANTUM High-Speed Matrix: Ultra-tight spread detected on ${selectedStock.symbol}. Instant scalp opportunity for ${shares} shares.`;
+      reason = `QUANTUM High-Speed Matrix: Real spread captured on ${selectedStock.symbol}. Instant scalp opportunity for ${shares} shares at $${selectedStock.price.toFixed(2)}.`;
     } else if (activeAgent.id === 'agent-valkyrie') {
-      reason = `VALKYRIE Tech Radar: High-Beta breakout vector active on ${selectedStock.symbol}. +25% profit multiplier engaged!`;
+      reason = `VALKYRIE Tech Radar: High-Beta breakout vector active on ${selectedStock.symbol} (${selectedStock.changePercent}% day change). +25% profit multiplier engaged!`;
     } else if (activeAgent.id === 'agent-aegis') {
-      reason = `AEGIS Risk Shield: Optimal risk-reward ratio verified for ${selectedStock.symbol}. Loss protection cap enabled at max -2%.`;
+      reason = `AEGIS Risk Shield: Optimal risk-reward ratio verified for ${selectedStock.symbol}. Real loss protection cap enabled at max -2%.`;
     } else if (activeAgent.id === 'agent-titan') {
-      reason = `TITAN Whale Insight: Accumulation cluster identified. Unlocks 3x buying power leverage for massive yield.`;
+      reason = `TITAN Whale Insight: Real liquidity accumulation cluster identified on ${selectedStock.symbol}. Unlocks 3x buying power leverage for massive yield.`;
     }
 
     setAgentAdvice({
@@ -167,7 +259,7 @@ export function GameProvider({ children }) {
       estimatedCost: +(shares * selectedStock.price).toFixed(2),
       confidence: `${confidence}%`,
       reason,
-      timestamp: 'Live Signal',
+      timestamp: 'Live Real Market Signal',
     });
   }, [selectedStockSymbol, stocks, activeAgent]);
 
@@ -219,7 +311,7 @@ export function GameProvider({ children }) {
       advanceMission('m-rookie-1', 1);
 
       // Advance Mission 3 ("Tech Sector Surge")
-      if (['AI & Semiconductors', 'Cloud & AI Kernel', 'Defense AI & Data', 'AI Hardware & Chips'].includes(stock.sector)) {
+      if (['AI & Semiconductors', 'Cloud & AI Kernel', 'Defense AI & Data', 'AI Hardware & Chips', 'Consumer Tech'].includes(stock.sector)) {
         advanceMission('m-tier-1', 1);
       }
 
@@ -236,7 +328,7 @@ export function GameProvider({ children }) {
         timestamp: 'Just now',
       });
 
-      showToast(`Bought ${sharesNum} shares of ${stock.symbol} for $${totalTransaction.toLocaleString()}`, 'success');
+      showToast(`Bought ${sharesNum} shares of ${stock.symbol} at live price $${stock.price.toFixed(2)} ($${totalTransaction.toLocaleString()})`, 'success');
       return true;
 
     } else if (type === 'SELL') {
@@ -304,9 +396,9 @@ export function GameProvider({ children }) {
 
       if (rawProfit > 0) {
         triggerConfetti();
-        showToast(`Sold ${sharesNum} ${stock.symbol} for a profit of +$${rawProfit.toFixed(2)}!`, 'success');
+        showToast(`Sold ${sharesNum} ${stock.symbol} at live price $${stock.price.toFixed(2)} (++$${rawProfit.toFixed(2)} Profit)!`, 'success');
       } else {
-        showToast(`Sold ${sharesNum} ${stock.symbol} ($${rawProfit.toFixed(2)})`, 'info');
+        showToast(`Sold ${sharesNum} ${stock.symbol} at $${stock.price.toFixed(2)} ($${rawProfit.toFixed(2)})`, 'info');
       }
       return true;
     }
@@ -403,10 +495,17 @@ export function GameProvider({ children }) {
     holdingsMarketValue,
     unrealizedProfit,
     totalRealizedProfit,
-    // Stocks
+    // Stocks & Real-Time Data
     stocks,
     selectedStockSymbol,
     setSelectedStockSymbol,
+    isFetchingLive,
+    lastUpdated,
+    marketDataSource,
+    refreshStockPrices,
+    addStockSymbol,
+    customApiKey,
+    setCustomApiKey,
     holdings,
     // Agents
     unlockedAgentIds,
