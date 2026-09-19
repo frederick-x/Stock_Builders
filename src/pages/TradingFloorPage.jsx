@@ -20,7 +20,10 @@ import {
   Plus,
   Key,
   Globe,
-  Radio
+  Radio,
+  SlidersHorizontal,
+  Flame,
+  Info
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import AgentOrb from '../components/AgentOrb';
@@ -42,14 +45,17 @@ export default function TradingFloorPage({ setActiveTab }) {
     marketDataSource,
     refreshStockPrices,
     addStockSymbol,
+    activeMarketEvent,
     customApiKey,
     setCustomApiKey,
+    playSound,
     showToast
   } = useGame();
 
   const [tradeAction, setTradeAction] = useState('BUY'); // 'BUY' | 'SELL'
   const [sharesInput, setSharesInput] = useState('10');
   const [newTickerInput, setNewTickerInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [timeframe, setTimeframe] = useState('1D'); // '1D' | '1W' | '1M'
   const [chartCandles, setChartCandles] = useState([]);
   const [isChartLoading, setIsChartLoading] = useState(false);
@@ -66,13 +72,19 @@ export default function TradingFloorPage({ setActiveTab }) {
     sparkline: [128.5],
     sector: 'Technology',
     volatility: 'HIGH',
+    tier: 'Tier S',
     logoColor: '#76B900'
   };
 
   const currentHolding = holdings.find(h => h.symbol === selectedStock.symbol);
-
   const numShares = parseFloat(sharesInput) || 0;
   const estimatedTotal = +(numShares * selectedStock.price).toFixed(2);
+
+  // Filter stocks by search query
+  const filteredStocks = stocks.filter(s => 
+    s.symbol.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    s.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   // Load real candle chart points when selected stock or timeframe changes
   useEffect(() => {
@@ -105,7 +117,7 @@ export default function TradingFloorPage({ setActiveTab }) {
         const news = await fetchStockNews(selectedStock.symbol, customApiKey);
         if (isMounted) setLiveNews(news);
       } catch (e) {
-        if (isMounted) setLiveNews({ headline: selectedStock.news || 'Market news loading...', datetime: 'Live' });
+        if (isMounted) setLiveNews({ headline: selectedStock.news || 'Market news streaming live...', datetime: 'Live' });
       }
     }
     loadNews();
@@ -129,408 +141,453 @@ export default function TradingFloorPage({ setActiveTab }) {
     e.preventDefault();
     setCustomApiKey(tempApiKey.trim());
     setShowApiModal(false);
-    showToast('Market API Token saved successfully! Fetching fresh quotes...', 'success');
+    showToast('Market API Token saved! Live market sync active.', 'success');
+  };
+
+  // Quick preset buttons for shares
+  const setQuickShares = (val) => {
+    playSound('click');
+    setSharesInput(String(val));
+  };
+
+  const setPercentShares = (pct) => {
+    playSound('click');
+    if (tradeAction === 'BUY') {
+      const maxAffordable = Math.floor(cashBalance / selectedStock.price);
+      const calculated = Math.max(1, Math.floor(maxAffordable * (pct / 100)));
+      setSharesInput(String(calculated));
+    } else if (tradeAction === 'SELL') {
+      const owned = currentHolding ? currentHolding.shares : 0;
+      const calculated = Math.max(1, Math.floor(owned * (pct / 100)));
+      setSharesInput(String(calculated));
+    }
   };
 
   // Sparkline points for SVG rendering
-  const activeChartPoints = chartCandles.length >= 3 ? chartCandles : (selectedStock.sparkline || [selectedStock.price, selectedStock.price]);
+  const activeChartPoints = chartCandles.length >= 3 
+    ? chartCandles 
+    : (selectedStock.sparkline && selectedStock.sparkline.length > 1 ? selectedStock.sparkline : [selectedStock.basePrice || selectedStock.price, selectedStock.price]);
+
+  const minPoint = Math.min(...activeChartPoints);
+  const maxPoint = Math.max(...activeChartPoints);
+  const range = maxPoint - minPoint || 1;
+
+  // Generate SVG path for chart
+  const svgWidth = 600;
+  const svgHeight = 220;
+  const pointsString = activeChartPoints.map((val, idx) => {
+    const x = (idx / (activeChartPoints.length - 1 || 1)) * svgWidth;
+    const y = svgHeight - 20 - ((val - minPoint) / range) * (svgHeight - 40);
+    return `${x},${y}`;
+  }).join(' ');
+
+  const isUp = selectedStock.changePercent >= 0;
+  const chartColor = isUp ? '#10B981' : '#EC4899';
 
   return (
-    <div className="trading-floor-container">
-      {/* Top Live Market Status & Control Bar */}
-      <div className="market-news-ticker-bar">
-        <div className="news-badge-pill">
+    <div className="trading-arena-container">
+      {/* 1. Top Ticker & Live Arena Status Bar */}
+      <div className="arena-top-ticker-bar">
+        <div className="ticker-live-tag">
           <Radio size={14} className="text-emerald animate-pulse" />
-          <span>LIVE MARKET FEED</span>
+          <span>ARENA FEED</span>
         </div>
 
-        <div className="news-headline-text">
-          <strong>{selectedStock.symbol} Market Flash:</strong> {liveNews ? liveNews.headline : (selectedStock.news || 'Loading real financial feed...')}
+        <div className="ticker-news-headline">
+          <strong>{selectedStock.symbol}:</strong> {liveNews ? liveNews.headline : (selectedStock.news || 'Streaming financial market intelligence...')}
         </div>
 
-        <div className="market-feed-controls">
-          <div className="feed-sync-info font-mono text-xs">
+        <div className="ticker-controls-group">
+          {activeMarketEvent && (
+            <div className="event-pill-mini font-mono">
+              <Flame size={13} className="text-gold" />
+              <span>{activeMarketEvent.title}</span>
+            </div>
+          )}
+
+          <div className="feed-sync-badge font-mono text-xs">
             <span className="sync-dot live" />
-            <span>{marketDataSource} &bull; {lastUpdated}</span>
+            <span>{lastUpdated || 'Live'}</span>
           </div>
 
           <button 
             type="button" 
-            className={`btn-sync-refresh ${isFetchingLive ? 'spinning' : ''}`}
+            className={`btn-sync-icon ${isFetchingLive ? 'spinning' : ''}`}
             onClick={refreshStockPrices}
-            title="Refresh Live Market Quotes"
-            disabled={isFetchingLive}
+            title="Refresh market quotes"
           >
-            <RefreshCw size={13} />
-            <span>{isFetchingLive ? 'Syncing...' : 'Sync Live'}</span>
+            <RefreshCw size={14} />
           </button>
 
           <button 
             type="button" 
-            className="btn-api-settings"
+            className="btn-api-key-pill"
             onClick={() => setShowApiModal(true)}
-            title="Configure Real Market API Token"
+            title="Configure Finnhub API Key"
           >
-            <Key size={13} />
-            <span>API Feed</span>
+            <Key size={13} /> {customApiKey ? 'Live Key' : 'Free Sandbox'}
           </button>
         </div>
       </div>
 
-      {/* Main Trading Floor Grid Layout */}
-      <div className="trading-floor-grid">
-        {/* Left Column: Stocks Watchlist & Real Ticker Search */}
-        <div className="stocks-ticker-panel">
-          <div className="panel-sub-header">
-            <span className="panel-title">LIVE MARKET ASSETS</span>
-            <span className="live-pulse-badge">
-              <span className="pulse-dot" /> REAL-TIME QUOTES
-            </span>
+      {/* 2. Main Arena 3-Column Split */}
+      <div className="arena-layout-split">
+        {/* Left Column: Watchlist Arena Roster */}
+        <div className="arena-watchlist-panel">
+          <div className="watchlist-header">
+            <div className="title-row-clean">
+              <Layers size={16} className="text-cyan" />
+              <h4>Market Watchlist</h4>
+              <span className="watchlist-count font-mono">{filteredStocks.length}</span>
+            </div>
+
+            {/* Search Input */}
+            <div className="watchlist-search-box">
+              <Search size={14} className="text-dim" />
+              <input 
+                type="text"
+                placeholder="Search ticker or name..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
           </div>
 
-          {/* Add Any Real Stock Symbol Search Bar */}
-          <form onSubmit={handleAddTicker} className="add-ticker-form">
-            <Search size={14} className="search-icon-mini text-dim" />
-            <input 
-              type="text" 
-              placeholder="Add Ticker (e.g. META, GOOGL)..."
-              value={newTickerInput}
-              onChange={(e) => setNewTickerInput(e.target.value.toUpperCase())}
-              className="input-add-ticker font-mono"
-            />
-            <button type="submit" className="btn-add-ticker" title="Add to Live Watchlist">
-              <Plus size={14} />
-            </button>
-          </form>
-
-          {/* Stocks Scroll List */}
-          <div className="stocks-scroll-list">
-            {stocks.map((stock) => {
+          {/* Watchlist Stock Cards */}
+          <div className="watchlist-cards-scroll">
+            {filteredStocks.map((stock) => {
               const isSelected = stock.symbol === selectedStock.symbol;
-              const isPositive = (stock.changePercent || 0) >= 0;
-              const userOwns = holdings.find(h => h.symbol === stock.symbol);
+              const isPositive = stock.changePercent >= 0;
+              const isHeld = holdings.some(h => h.symbol === stock.symbol);
 
               return (
-                <div
+                <div 
                   key={stock.symbol}
-                  className={`stock-ticker-card ${isSelected ? 'selected' : ''}`}
-                  onClick={() => setSelectedStockSymbol(stock.symbol)}
+                  className={`watchlist-stock-card ${isSelected ? 'selected-active' : ''}`}
+                  onClick={() => { playSound('click'); setSelectedStockSymbol(stock.symbol); }}
                 >
-                  <div className="ticker-left-info">
-                    <div className="symbol-avatar-mini" style={{ color: stock.logoColor, borderColor: `${stock.logoColor}60` }}>
-                      {stock.symbol.slice(0, 3)}
+                  <div className="stock-card-left">
+                    <div className="stock-sym-row">
+                      <span className="stock-symbol font-bold">{stock.symbol}</span>
+                      {stock.tier && <span className="tier-tag font-mono">{stock.tier}</span>}
+                      {isHeld && <span className="held-badge">OWNED</span>}
                     </div>
-                    <div>
-                      <div className="ticker-symbol-row">
-                        <span className="symbol-text">{stock.symbol}</span>
-                        {userOwns && <span className="owned-shares-badge">{userOwns.shares} Owned</span>}
-                      </div>
-                      <div className="ticker-name-text">{stock.name}</div>
-                    </div>
+                    <span className="stock-name-label text-dim text-xs">{stock.name}</span>
                   </div>
 
-                  <div className="ticker-right-price">
-                    <div className="price-val font-mono">${(stock.price || 0).toFixed(2)}</div>
-                    <div className={`change-pill ${isPositive ? 'pos' : 'neg'}`}>
-                      {isPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                      <span>{isPositive ? '+' : ''}{(stock.changePercent || 0).toFixed(2)}%</span>
+                  <div className="stock-card-right font-mono">
+                    <div className="stock-price-val font-bold">${stock.price.toFixed(2)}</div>
+                    <div className={`stock-change-pill ${isPositive ? 'pos' : 'neg'}`}>
+                      {isPositive ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+                      <span>{isPositive ? '+' : ''}{stock.changePercent}%</span>
                     </div>
                   </div>
                 </div>
               );
             })}
           </div>
+
+          {/* Add Custom Ticker Form */}
+          <form className="add-ticker-form" onSubmit={handleAddTicker}>
+            <input 
+              type="text"
+              placeholder="+ Add any symbol (e.g. GOOG, META)"
+              value={newTickerInput}
+              onChange={(e) => setNewTickerInput(e.target.value)}
+            />
+            <button type="submit" className="btn-add-ticker-submit" title="Add live ticker">
+              <Plus size={15} />
+            </button>
+          </form>
         </div>
 
-        {/* Center Column: Live Interactive Price Chart & Agent Advice HUD */}
-        <div className="trading-center-stage">
-          {/* Main Chart Card */}
-          <div className="stock-chart-card">
-            <div className="chart-header-row">
-              <div className="chart-title-group">
-                <div className="chart-title-flex">
-                  <h2>{selectedStock.name} ({selectedStock.symbol})</h2>
-                  <span className="live-tag-pill">● REAL QUOTE</span>
-                </div>
-                <span className="sector-tag">{selectedStock.sector}</span>
+        {/* Center Column: Interactive Hologram Chart & AI Companion Beacon */}
+        <div className="arena-center-stage">
+          {/* Stock Header Telemetry Bar */}
+          <div className="selected-stock-header">
+            <div className="stock-hero-info">
+              <div className="sym-badge-avatar" style={{ color: selectedStock.logoColor, borderColor: `${selectedStock.logoColor}60` }}>
+                {selectedStock.symbol.slice(0, 3)}
               </div>
-
-              <div className="chart-price-and-timeframe">
-                <div className="chart-price-group">
-                  <div className="big-price font-mono font-bold">
-                    ${(selectedStock.price || 0).toFixed(2)}
-                  </div>
-                  <div className={`chart-delta ${(selectedStock.changePercent || 0) >= 0 ? 'pos' : 'neg'}`}>
-                    {(selectedStock.changePercent || 0) >= 0 ? '+' : ''}{(selectedStock.changePercent || 0).toFixed(2)}%
-                    <span className="change-abs font-mono text-xs">
-                      ({(selectedStock.change || 0) >= 0 ? '+' : ''}${(selectedStock.change || 0).toFixed(2)})
-                    </span>
-                  </div>
+              <div>
+                <div className="sym-title-row">
+                  <h2>{selectedStock.symbol}</h2>
+                  <span className="sector-tag">{selectedStock.sector}</span>
                 </div>
-
-                {/* Real Timeframe Selector */}
-                <div className="timeframe-pills">
-                  {['1D', '1W', '1M'].map((tf) => (
-                    <button
-                      key={tf}
-                      type="button"
-                      className={`btn-tf ${timeframe === tf ? 'active' : ''}`}
-                      onClick={() => setTimeframe(tf)}
-                    >
-                      {tf}
-                    </button>
-                  ))}
-                </div>
+                <div className="stock-full-name text-dim">{selectedStock.name}</div>
               </div>
             </div>
 
-            {/* Real SVG Historical Trend Chart */}
-            <div className="svg-chart-container">
-              {isChartLoading && (
-                <div className="chart-loading-overlay">
-                  <RefreshCw size={20} className="spinning text-emerald" />
-                  <span>Loading Real Market Trajectory...</span>
-                </div>
-              )}
-              <svg className="live-chart-svg" viewBox="0 0 500 160" preserveAspectRatio="none">
-                <defs>
-                  <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={(selectedStock.changePercent || 0) >= 0 ? '#10B981' : '#F43F5E'} stopOpacity="0.25" />
-                    <stop offset="100%" stopColor={(selectedStock.changePercent || 0) >= 0 ? '#10B981' : '#F43F5E'} stopOpacity="0.0" />
-                  </linearGradient>
-                </defs>
-
-                {(() => {
-                  const min = Math.min(...activeChartPoints);
-                  const max = Math.max(...activeChartPoints);
-                  const range = max - min || 1;
-                  const points = activeChartPoints
-                    .map((val, idx) => {
-                      const x = (idx / (activeChartPoints.length - 1)) * 480 + 10;
-                      const y = 140 - ((val - min) / range) * 110;
-                      return `${x},${y}`;
-                    })
-                    .join(' ');
-
-                  const fillPoints = `10,150 ${points} 490,150`;
-
-                  return (
-                    <>
-                      <polygon fill="url(#chartGrad)" points={fillPoints} />
-                      <polyline
-                        fill="none"
-                        stroke={(selectedStock.changePercent || 0) >= 0 ? '#10B981' : '#F43F5E'}
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        points={points}
-                      />
-                    </>
-                  );
-                })()}
-              </svg>
-            </div>
-
-            {/* Real Day Market Metrics Strip */}
-            <div className="chart-metrics-strip">
-              <div className="c-stat">Day High: <strong className="font-mono text-emerald">${(selectedStock.high || selectedStock.price).toFixed(2)}</strong></div>
-              <div className="c-stat">Day Low: <strong className="font-mono text-pink">${(selectedStock.low || selectedStock.price).toFixed(2)}</strong></div>
-              <div className="c-stat">Prev Close: <strong className="font-mono">${(selectedStock.prevClose || selectedStock.basePrice || selectedStock.price).toFixed(2)}</strong></div>
-              <div className="c-stat">Open: <strong className="font-mono">${(selectedStock.open || selectedStock.price).toFixed(2)}</strong></div>
-              <div className="c-stat">Agent Signal Accuracy: <strong className="text-cyan">{activeAgent.stats.accuracy}%</strong></div>
+            <div className="stock-price-telemetry">
+              <div className="price-big font-mono font-bold">
+                ${selectedStock.price.toFixed(2)}
+              </div>
+              <div className={`price-change-large font-mono font-bold ${isUp ? 'text-emerald' : 'text-pink'}`}>
+                {isUp ? '+' : ''}{selectedStock.changePercent}% ({isUp ? '+' : ''}${selectedStock.change || ((selectedStock.price * selectedStock.changePercent) / 100).toFixed(2)})
+              </div>
             </div>
           </div>
 
-          {/* AGENT ADVISORY DECISION HUD (Calibrated with Real Market Data) */}
-          {agentAdvice && (
-            <div className="agent-advice-hud-card">
-              <div className="hud-top-strip">
-                <div className="hud-agent-identity">
-                  <AgentOrb color={activeAgent.orbColor || 'violet'} size="sm" pulse={true} />
-                  <div>
-                    <div className="agent-hud-name">
-                      {activeAgent.name}'S REAL-MARKET SIGNAL
-                      <span className="badge-confidence">{agentAdvice.confidence} CONFIDENCE</span>
-                    </div>
-                    <div className="agent-hud-title">{activeAgent.title} &bull; {activeAgent.skillName}</div>
-                  </div>
-                </div>
-
+          {/* Chart Controls & Timeframe Bar */}
+          <div className="chart-controls-bar">
+            <div className="timeframe-toggles">
+              {['1D', '1W', '1M', '1Y'].map((tf) => (
                 <button 
-                  type="button" 
-                  className="btn-switch-agent-link"
-                  onClick={() => setActiveTab('forge')}
-                >
-                  <Bot size={13} /> Switch Agent
-                </button>
-              </div>
-
-              <div className="hud-speech-bubble">
-                <p className="hud-reason-text">"{agentAdvice.reason}"</p>
-              </div>
-
-              <div className="hud-action-trigger-bar">
-                <div className="hud-action-meta">
-                  <span className={`signal-action-badge ${agentAdvice.action === 'BUY' ? 'buy' : 'sell'}`}>
-                    SIGNAL: {agentAdvice.action}
-                  </span>
-                  <span className="signal-amount-hint">
-                    Target: <strong>{agentAdvice.shares} shares</strong> (~${agentAdvice.estimatedCost.toLocaleString()})
-                  </span>
-                </div>
-
-                <button 
-                  type="button" 
-                  className="btn-follow-agent"
-                  onClick={followAgentAdvice}
-                >
-                  <Zap size={16} />
-                  <span>EXECUTE {activeAgent.name}'S ADVICE (1-CLICK)</span>
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Right Column: Manual Trade Terminal & Position Summary */}
-        <div className="trade-terminal-panel">
-          <div className="terminal-header">
-            <span className="panel-title">ORDER TERMINAL</span>
-            <span className="badge-stock-selected">{selectedStock.symbol}</span>
-          </div>
-
-          {/* Buy/Sell Mode Switcher */}
-          <div className="order-mode-tabs">
-            <button
-              type="button"
-              className={`order-tab-btn buy ${tradeAction === 'BUY' ? 'active' : ''}`}
-              onClick={() => setTradeAction('BUY')}
-            >
-              Buy Stock
-            </button>
-            <button
-              type="button"
-              className={`order-tab-btn sell ${tradeAction === 'SELL' ? 'active' : ''}`}
-              onClick={() => setTradeAction('SELL')}
-            >
-              Sell Stock
-            </button>
-          </div>
-
-          <form onSubmit={handleManualTrade} className="terminal-form">
-            <div className="form-item">
-              <label>Live Market Execution Price</label>
-              <div className="read-only-price font-mono">
-                ${(selectedStock.price || 0).toFixed(2)} USD
-              </div>
-            </div>
-
-            <div className="form-item">
-              <div className="label-row">
-                <label htmlFor="shares-range">Shares Quantity</label>
-                <span className="shares-counter font-mono">{sharesInput} Shares</span>
-              </div>
-              <input
-                id="shares-range"
-                type="number"
-                min="1"
-                step="1"
-                className="input-shares-field font-mono"
-                value={sharesInput}
-                onChange={(e) => setSharesInput(e.target.value)}
-                required
-              />
-            </div>
-
-            {/* Quick Share Buttons */}
-            <div className="quick-shares-row">
-              {['5', '10', '25', '50', '100'].map((qty) => (
-                <button
-                  key={qty}
+                  key={tf}
                   type="button"
-                  className="btn-quick-share"
-                  onClick={() => setSharesInput(qty)}
+                  className={`btn-tf ${timeframe === tf ? 'active' : ''}`}
+                  onClick={() => { playSound('click'); setTimeframe(tf); }}
                 >
-                  {qty}
+                  {tf}
                 </button>
               ))}
             </div>
 
-            <div className="order-cost-breakdown">
-              <div className="breakdown-row">
-                <span>Estimated Order Total:</span>
-                <strong className="font-mono text-gold">${estimatedTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+            <div className="chart-stats-summary font-mono text-xs">
+              <span>HIGH: ${(selectedStock.high || selectedStock.price * 1.02).toFixed(2)}</span>
+              <span>LOW: ${(selectedStock.low || selectedStock.price * 0.98).toFixed(2)}</span>
+              <span>VOL: HIGH</span>
+            </div>
+          </div>
+
+          {/* Interactive Futuristic Holographic Neon SVG Chart */}
+          <div className="chart-canvas-wrapper">
+            {isChartLoading && (
+              <div className="chart-loading-overlay">
+                <RefreshCw size={24} className="spinning text-cyan" />
+                <span>Synchronizing telemetry matrix...</span>
               </div>
-              <div className="breakdown-row">
-                <span>Available Cash:</span>
-                <strong className="font-mono text-emerald">${cashBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+            )}
+
+            <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="hologram-svg-chart">
+              <defs>
+                <linearGradient id="chartGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stopColor={chartColor} stopOpacity="0.4" />
+                  <stop offset="70%" stopColor={chartColor} stopOpacity="0.08" />
+                  <stop offset="100%" stopColor={chartColor} stopOpacity="0.0" />
+                </linearGradient>
+                <filter id="neonGlow" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="3" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
+
+              {/* Gridlines */}
+              <line x1="0" y1="40" x2={svgWidth} y2="40" stroke="rgba(255,255,255,0.05)" strokeDasharray="4 4" />
+              <line x1="0" y1="100" x2={svgWidth} y2="100" stroke="rgba(255,255,255,0.05)" strokeDasharray="4 4" />
+              <line x1="0" y1="160" x2={svgWidth} y2="160" stroke="rgba(255,255,255,0.05)" strokeDasharray="4 4" />
+
+              {/* Area Fill */}
+              <polygon 
+                points={`0,${svgHeight} ${pointsString} ${svgWidth},${svgHeight}`} 
+                fill="url(#chartGradient)" 
+              />
+
+              {/* Glowing Neon Trendline */}
+              <polyline 
+                points={pointsString} 
+                fill="none" 
+                stroke={chartColor} 
+                strokeWidth="3"
+                filter="url(#neonGlow)"
+              />
+
+              {/* Real-time Pulsing Endpoint Beacon */}
+              {activeChartPoints.length > 0 && (
+                <circle 
+                  cx={svgWidth} 
+                  cy={svgHeight - 20 - ((selectedStock.price - minPoint) / range) * (svgHeight - 40)} 
+                  r="5" 
+                  fill={chartColor} 
+                  className="animate-pulse"
+                />
+              )}
+            </svg>
+          </div>
+
+          {/* AI Companion Tactical Signal Beacon Box */}
+          {agentAdvice && (
+            <div className="ai-signal-beacon-card">
+              <div className="signal-left-col">
+                <AgentOrb color={activeAgent.orbColor || 'violet'} size="sm" pulse={true} />
+                <div>
+                  <span className="signal-agent-name font-mono">{activeAgent.name} (LVL {activeAgent.level})</span>
+                  <div className="signal-verdict-row">
+                    <span className={`verdict-badge ${agentAdvice.action.toLowerCase()}`}>
+                      {agentAdvice.action} SIGNAL
+                    </span>
+                    <span className="confidence-chip font-mono text-cyan">
+                      {agentAdvice.confidence} Conviction
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="signal-center-reason">
+                <p>{agentAdvice.reason}</p>
+              </div>
+
+              <button 
+                type="button" 
+                className="btn-follow-ai-action"
+                onClick={() => { playSound('click'); followAgentAdvice(); }}
+              >
+                <Zap size={15} fill="#042F1D" />
+                <span>FOLLOW {agentAdvice.action} ORDER (+50 XP)</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Right Column: Virtual Gaming Order Pad Terminal */}
+        <div className="arena-order-terminal">
+          <div className="terminal-header">
+            <div className="title-row-clean">
+              <SlidersHorizontal size={16} className="text-gold" />
+              <h4>Virtual Order Pad</h4>
+            </div>
+            <span className="cash-avail-tag font-mono">
+              Cash: ${cashBalance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            </span>
+          </div>
+
+          {/* Action Switcher: BUY vs SELL */}
+          <div className="action-toggle-grid">
+            <button 
+              type="button" 
+              className={`btn-action-tab buy ${tradeAction === 'BUY' ? 'active' : ''}`}
+              onClick={() => { playSound('click'); setTradeAction('BUY'); }}
+            >
+              BUY / LONG
+            </button>
+            <button 
+              type="button" 
+              className={`btn-action-tab sell ${tradeAction === 'SELL' ? 'active' : ''}`}
+              onClick={() => { playSound('click'); setTradeAction('SELL'); }}
+            >
+              SELL / EXIT
+            </button>
+          </div>
+
+          {/* Current Position Quick Status */}
+          <div className="current-pos-card">
+            <span className="pos-lbl">Current Position:</span>
+            <span className="pos-val font-mono">
+              {currentHolding ? `${currentHolding.shares} Shares (Avg $${currentHolding.avgPrice.toFixed(2)})` : '0 Shares (No open position)'}
+            </span>
+          </div>
+
+          {/* Share Quantity Input & Presets */}
+          <form className="order-form-body" onSubmit={handleManualTrade}>
+            <div className="input-field-block">
+              <label className="field-lbl">Number of Shares to Trade</label>
+              <div className="shares-input-wrap">
+                <input 
+                  type="number"
+                  min="1"
+                  step="any"
+                  value={sharesInput}
+                  onChange={(e) => setSharesInput(e.target.value)}
+                  className="font-mono font-bold"
+                />
+                <span className="input-suffix">SHARES</span>
               </div>
             </div>
 
-            <button
-              type="submit"
-              className={`btn-execute-order ${tradeAction === 'BUY' ? 'buy' : 'sell'}`}
+            {/* Quick Share Preset Chips */}
+            <div className="quick-shares-chips">
+              {[1, 5, 10, 25, 50].map((qty) => (
+                <button 
+                  key={qty} 
+                  type="button" 
+                  className="btn-chip"
+                  onClick={() => setQuickShares(qty)}
+                >
+                  +{qty}
+                </button>
+              ))}
+            </div>
+
+            {/* Percentage Allocation Buttons */}
+            <div className="percent-shares-row">
+              {[25, 50, 75, 100].map((pct) => (
+                <button 
+                  key={pct} 
+                  type="button" 
+                  className="btn-pct"
+                  onClick={() => setPercentShares(pct)}
+                >
+                  {pct === 100 ? 'MAX' : `${pct}%`}
+                </button>
+              ))}
+            </div>
+
+            {/* Order Telemetry Breakdown */}
+            <div className="order-telemetry-box font-mono text-xs">
+              <div className="tele-row">
+                <span>Unit Execution Price</span>
+                <span>${selectedStock.price.toFixed(2)}</span>
+              </div>
+              <div className="tele-row">
+                <span>Estimated XP Reward</span>
+                <span className="text-cyan font-bold">+35 to +150 XP</span>
+              </div>
+              <div className="tele-row">
+                <span>Companion Profit Booster</span>
+                <span className="text-gold font-bold">+{activeAgent.stats.profitBonus}%</span>
+              </div>
+              <div className="tele-row">
+                <span>Aegis Downside Shield</span>
+                <span className="text-emerald font-bold">{activeAgent.stats.shield}% Protection</span>
+              </div>
+              <div className="tele-row total font-bold">
+                <span>ESTIMATED TOTAL</span>
+                <span className="text-pure text-sm">${estimatedTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+            </div>
+
+            {/* Big Punchy Action Button */}
+            <button 
+              type="submit" 
+              className={`btn-submit-arena-order ${tradeAction === 'BUY' ? 'btn-buy-neon' : 'btn-sell-neon'}`}
             >
-              {tradeAction === 'BUY' ? `Buy ${sharesInput || 0} ${selectedStock.symbol} ($${estimatedTotal.toLocaleString()})` : `Sell ${sharesInput || 0} ${selectedStock.symbol}`}
+              <span>EXECUTE {tradeAction} ({numShares} {selectedStock.symbol})</span>
             </button>
           </form>
-
-          {/* Current Position in this Stock */}
-          <div className="current-position-box">
-            <div className="pos-head">Your {selectedStock.symbol} Position</div>
-            {currentHolding ? (
-              <div className="pos-data-grid">
-                <div>Shares: <strong className="font-mono">{currentHolding.shares}</strong></div>
-                <div>Avg Cost: <strong className="font-mono">${currentHolding.avgPrice.toFixed(2)}</strong></div>
-                <div>Market Val: <strong className="font-mono">${(currentHolding.shares * selectedStock.price).toFixed(2)}</strong></div>
-                <div>
-                  P&L: <strong className={`font-mono ${(selectedStock.price - currentHolding.avgPrice) >= 0 ? 'text-emerald' : 'text-pink'}`}>
-                    {((selectedStock.price - currentHolding.avgPrice) * currentHolding.shares) >= 0 ? '+' : ''}
-                    ${((selectedStock.price - currentHolding.avgPrice) * currentHolding.shares).toFixed(2)}
-                  </strong>
-                </div>
-              </div>
-            ) : (
-              <span className="no-pos-text">No open shares owned in {selectedStock.symbol}</span>
-            )}
-          </div>
         </div>
       </div>
 
-      {/* API Key Settings Modal */}
+      {/* Finnhub API Key Modal */}
       {showApiModal && (
-        <div className="modal-backdrop-overlay" onClick={() => setShowApiModal(false)}>
-          <div className="modal-glass-card" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head-row">
-              <div className="modal-title-wrap">
-                <Globe size={18} className="text-cyan" />
-                <h3>Real-Time Financial Market Feed Settings</h3>
+        <div className="game-modal-backdrop" onClick={() => setShowApiModal(false)}>
+          <div className="api-config-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-top-row">
+              <div className="title-row-clean">
+                <Key size={18} className="text-cyan" />
+                <h3>Custom Live Market API Key</h3>
               </div>
-              <button className="btn-close-modal" onClick={() => setShowApiModal(false)}>&times;</button>
             </div>
-
-            <p className="modal-desc-p">
-              The platform connects to live financial data streams (Finnhub & Yahoo Finance) to deliver authentic, real-world stock market quotes, prices, and daily metrics.
+            <p className="modal-desc">
+              STOCKBUILDERS includes real live quotes by default. You can optionally paste your free <strong>Finnhub.io</strong> API key for personal rate limits.
             </p>
-
-            <form onSubmit={handleSaveApiKey} className="api-config-form">
-              <div className="form-item">
-                <label>Custom Finnhub API Key (Optional)</label>
-                <input 
-                  type="text" 
-                  placeholder="Enter free API key or leave blank for default sandbox feed"
-                  value={tempApiKey}
-                  onChange={(e) => setTempApiKey(e.target.value)}
-                  className="input-api-token font-mono"
-                />
-                <span className="hint-text">
-                  A free token is included by default. You can also paste your own free key from <a href="https://finnhub.io" target="_blank" rel="noreferrer">Finnhub.io</a> for higher rate limits.
-                </span>
-              </div>
-
-              <div className="modal-btn-row">
-                <button type="button" className="btn-secondary" onClick={() => setShowApiModal(false)}>Cancel</button>
-                <button type="submit" className="btn-primary">Save & Sync Market Feed</button>
+            <form onSubmit={handleSaveApiKey}>
+              <input 
+                type="text"
+                placeholder="Paste Finnhub API Key (e.g. d28as...)"
+                value={tempApiKey}
+                onChange={(e) => setTempApiKey(e.target.value)}
+                className="api-key-input font-mono"
+              />
+              <div className="modal-actions-row">
+                <button type="button" className="btn-cancel" onClick={() => setShowApiModal(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn-save-key">
+                  Save & Connect
+                </button>
               </div>
             </form>
           </div>

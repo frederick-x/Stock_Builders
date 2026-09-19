@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   TrendingUp, 
   Bot, 
@@ -12,7 +12,14 @@ import {
   Zap,
   ShieldCheck,
   Award,
-  Radio
+  Radio,
+  Volume2,
+  VolumeX,
+  Compass,
+  Box,
+  Flame,
+  User,
+  LogOut
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import { useNexora } from '../context/NexoraContext';
@@ -22,39 +29,55 @@ export default function Navbar({ activeTab, setActiveTab }) {
   const { 
     cashBalance, 
     gemBalance, 
+    playerLevel,
+    playerXP,
+    xpForNextLevel,
+    currentRank,
     activeAgent, 
     unlockedAgentIds, 
     claimFreeDemoGrant,
-    lastUpdated
+    soundMuted,
+    toggleSound,
+    playSound
   } = useGame();
-  const { llmEnabled, setLlmEnabled } = useGame();
+
   const { user, signOut } = useNexora();
-  const [showProfileMenu, setShowProfileMenu] = React.useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+
+  const xpPct = Math.min(100, Math.round((playerXP / xpForNextLevel) * 100));
 
   const navItems = [
-    { id: 'trading', label: 'Trading Floor', icon: TrendingUp, badge: 'LIVE REAL' },
-    { id: 'forge', label: 'Agent Forge', icon: Bot, badge: `${unlockedAgentIds.length}/6 Unlocked` },
-    { id: 'missions', label: 'Missions & Gems', icon: Target, badge: '💎 REWARDS' },
-    { id: 'portfolio', label: 'Portfolio', icon: PieChart },
-    { id: 'leaderboard', label: 'Leaderboard', icon: Trophy },
+    { id: 'command', label: 'Command Center', icon: Compass, badge: 'HOME' },
+    { id: 'trading', label: 'Trading Arena', icon: TrendingUp, badge: 'LIVE' },
+    { id: 'forge', label: 'Agent Forge', icon: Bot, badge: `${unlockedAgentIds.length}/6 AI` },
+    { id: 'missions', label: 'Quest Hub', icon: Target, badge: '💎 BOUNTIES' },
+    { id: 'portfolio', label: 'Inventory', icon: Box },
+    { id: 'leaderboard', label: 'Market League', icon: Trophy },
   ];
+
+  const handleTabClick = (tabId) => {
+    playSound('click');
+    setActiveTab(tabId);
+  };
 
   return (
     <header className="game-navbar-top">
       <div className="game-navbar-inner">
-        {/* Brand Logo */}
-        <div className="game-brand-group" onClick={() => setActiveTab('trading')}>
+        {/* 1. Left Brand Group */}
+        <div className="game-brand-group" onClick={() => handleTabClick('command')}>
           <div className="brand-gem-logo">
             <TrendingUp size={22} className="text-emerald" />
-            <Bot size={16} className="brand-sub-bot text-cyan" />
+            <Bot size={15} className="brand-sub-bot text-cyan" />
           </div>
           <div className="brand-text-col">
-            <span className="brand-title">STOCKBUILDERS <span className="brand-stock-tag">LIVE STOCKS</span></span>
-            <span className="brand-subline">Real-Time Market & AI Agent Floor</span>
+            <span className="brand-title">
+              STOCKBUILDERS <span className="brand-stock-tag font-mono">GAME ARENA</span>
+            </span>
+            <span className="brand-subline">Futuristic Market Strategy Game</span>
           </div>
         </div>
 
-        {/* Center Nav Tabs */}
+        {/* 2. Center Nav Tabs */}
         <nav className="game-nav-center">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -64,7 +87,7 @@ export default function Navbar({ activeTab, setActiveTab }) {
                 key={item.id}
                 type="button"
                 className={`game-nav-btn ${isActive ? 'active' : ''}`}
-                onClick={() => setActiveTab(item.id)}
+                onClick={() => handleTabClick(item.id)}
               >
                 <Icon size={16} />
                 <span>{item.label}</span>
@@ -78,79 +101,106 @@ export default function Navbar({ activeTab, setActiveTab }) {
           })}
         </nav>
 
-        {/* Right: Dual Currency + Active Agent Badge */}
+        {/* 3. Right Status HUD: Level/XP + Dual Currency + Sound + Profile */}
         <div className="game-navbar-right">
-          {/* Cash Balance ($) */}
-          <div className="currency-pill cash-pill" title="Trading Cash to buy and sell stocks">
+          {/* Player Level & XP Mini Bar */}
+          <div 
+            className="player-level-nav-pill font-mono" 
+            onClick={() => handleTabClick('command')}
+            title={`Level ${playerLevel} (${currentRank.title}) — ${playerXP}/${xpForNextLevel} XP`}
+          >
+            <div className="lvl-chip font-bold">LVL {playerLevel}</div>
+            <div className="nav-xp-bar-track">
+              <div className="nav-xp-bar-fill" style={{ width: `${xpPct}%` }} />
+            </div>
+          </div>
+
+          {/* Virtual Trading Cash */}
+          <div className="currency-pill cash-pill" title="Virtual Trading Cash for stock orders">
             <Coins size={15} className="text-emerald" />
             <div className="cur-val-col">
-              <span className="cur-label">TRADING CASH</span>
-              <span className="cur-amount font-mono">${cashBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              <span className="cur-label">VIRTUAL CASH</span>
+              <span className="cur-amount font-mono">${cashBalance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
             </div>
           </div>
 
           {/* Premium Unique Token: 💎 NEXUS GEMS */}
-          <div className="currency-pill gem-pill" onClick={() => setActiveTab('forge')} title="Premium Unique Tokens to recruit AI Agents!">
+          <div 
+            className="currency-pill gem-pill" 
+            onClick={() => handleTabClick('forge')} 
+            title="Premium Nexus Gems to recruit & train AI Companions!"
+          >
             <div className="gem-shimmer-wrap">
-              <Gem size={17} className="gem-icon-pulse" />
+              <Gem size={16} className="gem-icon-pulse text-gold" />
             </div>
             <div className="cur-val-col">
-              <span className="cur-label text-gold">💎 NEXUS GEMS</span>
-              <span className="cur-amount font-mono text-gold font-bold">{gemBalance} GEMS</span>
+              <span className="cur-label text-gold">💎 GEMS</span>
+              <span className="cur-amount font-mono text-gold font-bold">{gemBalance}</span>
             </div>
           </div>
 
-          {/* Active Agent Badge */}
-          <div className="active-agent-pill" onClick={() => setActiveTab('forge')}>
+          {/* Active AI Companion Co-Pilot */}
+          <div 
+            className="active-agent-pill" 
+            onClick={() => handleTabClick('forge')}
+            title={`Active Co-Pilot: ${activeAgent.name} (Level ${activeAgent.level})`}
+          >
             <AgentOrb color={activeAgent.orbColor || 'violet'} size="xs" pulse={true} />
             <div className="agent-pill-info">
               <span className="agent-pill-name">{activeAgent.name}</span>
-              <span className="agent-pill-skill">{activeAgent.rarity}</span>
+              <span className="agent-pill-skill font-mono">LVL {activeAgent.level}</span>
             </div>
           </div>
 
-          {/* Emergency Funds Grant */}
+          {/* Sound FX Mute Toggle */}
+          <button 
+            type="button" 
+            className={`btn-sound-toggle ${soundMuted ? 'muted' : 'active'}`}
+            onClick={toggleSound}
+            title={soundMuted ? 'Unmute Game Sounds' : 'Mute Game Sounds'}
+          >
+            {soundMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+          </button>
+
+          {/* Free Simulator Aid Grant */}
           <button 
             type="button" 
             className="btn-demo-grant"
             onClick={claimFreeDemoGrant}
             title="Claim +$5,000 Cash & +35 Gems (Free Simulator Aid)"
           >
-            <Plus size={14} /> +Aid
+            <Plus size={13} /> +Aid
           </button>
 
           {/* User Profile / Logout */}
-          <div className="profile-root" style={{ position: 'relative', marginLeft: 12 }}>
-          {/* LLM Toggle */}
-          <button
-            type="button"
-            className={`btn-llm-toggle ${llmEnabled ? 'active' : ''}`}
-            onClick={() => setLlmEnabled(v => !v)}
-            title="Toggle live LLM-powered agent advice"
-            style={{ marginRight: 8 }}
-          >
-            <Bot size={14} /> {llmEnabled ? 'LLM On' : 'LLM Off'}
-          </button>
+          <div className="profile-root">
             <button
               type="button"
               className="profile-btn"
-              onClick={() => setShowProfileMenu(s => !s)}
-              title={user ? `Signed in as ${user.name || user.email}` : 'Not signed in'}
+              onClick={() => { playSound('click'); setShowProfileMenu(s => !s); }}
+              title={user ? `Commander: ${user.name || user.email}` : 'Guest Explorer'}
             >
-              <div style={{ width:36, height:36, borderRadius:999, background: 'linear-gradient(90deg,#06b6d4,#8b5cf6)', display:'flex', alignItems:'center', justifyContent:'center', color:'#071024', fontWeight:700 }}>
-                {user ? (user.name ? user.name[0].toUpperCase() : (user.email ? user.email[0].toUpperCase() : 'U')) : 'G'}
+              <div className="profile-avatar-circle">
+                {user ? (user.name ? user.name[0].toUpperCase() : (user.email ? user.email[0].toUpperCase() : 'U')) : 'C'}
               </div>
             </button>
 
             {showProfileMenu && (
-              <div className="profile-menu" style={{ position: 'absolute', right: 0, top: 44, background: '#0b1220', border: '1px solid #172033', padding: 8, borderRadius: 8, minWidth: 160, zIndex: 60 }}>
-                <div style={{ padding: '8px 10px', color: '#cbd5e1' }}>
-                  <div style={{ fontWeight: 600 }}>{user?.name || 'Guest'}</div>
-                  <div style={{ fontSize: 12, color: '#94a3b8' }}>{user?.email || ''}</div>
+              <div className="profile-menu-dropdown animate-scale-up">
+                <div className="profile-menu-header">
+                  <div className="font-bold text-pure">{user?.name || 'Commander'}</div>
+                  <div className="text-xs text-dim">{user?.email || 'simulation@stockbuilders.ai'}</div>
+                  <div className="profile-rank-tag font-mono text-xs text-gold">
+                    {currentRank.icon} {currentRank.title} (Lvl {playerLevel})
+                  </div>
                 </div>
-                <div style={{ height: 1, background: '#14202b', margin: '6px 0' }} />
-                <button className="btn-auth-submit" style={{ width: '100%' }} onClick={() => { setShowProfileMenu(false); signOut(); }}>
-                  Logout
+                <div className="profile-menu-divider" />
+                <button 
+                  className="btn-logout-menu" 
+                  onClick={() => { setShowProfileMenu(false); signOut(); }}
+                >
+                  <LogOut size={14} />
+                  <span>Logout</span>
                 </button>
               </div>
             )}

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Bot, 
   Gem, 
@@ -11,57 +11,74 @@ import {
   Star, 
   ArrowRight,
   Sliders,
-  Check
+  Check,
+  TrendingUp,
+  BrainCircuit,
+  Flame,
+  ChevronRight
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
-import { AGENTS_CATALOG, RARITY_COLORS } from '../services/gameData';
+import { RARITY_COLORS } from '../services/gameData';
 import AgentOrb from '../components/AgentOrb';
 
 export default function AgentForgePage({ setActiveTab }) {
   const { 
     gemBalance, 
+    agentsCatalog,
     unlockedAgentIds, 
     activeAgentId, 
     unlockAgent, 
-    setActiveAgentId 
+    trainCompanion,
+    setActiveAgentId,
+    playSound 
   } = useGame();
+
+  const [selectedAgentForDetail, setSelectedAgentForDetail] = useState(null);
 
   return (
     <div className="agent-forge-container">
-      {/* Hero Banner */}
+      {/* 1. Hero Forge Banner */}
       <div className="forge-hero-banner">
         <div className="forge-badge-pill">
-          <Bot size={15} className="text-cyan" />
-          <span>AI AGENT RECRUITMENT FORGE</span>
+          <BrainCircuit size={15} className="text-cyan" />
+          <span>AI COMPANION FORGE & SKILL MATRIX</span>
         </div>
-        <h2>Unlock Specialized AI Trading Agents</h2>
-        <p>Complete stock trading missions to earn 💎 Premium Nexus Gems. Spend gems here to recruit advanced AI agents with predictive signals, profit multipliers, and crash shields.</p>
 
-        <div className="forge-gem-status-pill">
-          <Gem size={18} className="text-gold gem-icon-pulse" />
-          <span>Your Premium Vault: <strong className="font-mono text-gold">{gemBalance} 💎 GEMS</strong></span>
+        <h2>Recruit & Train AI Trading Companions</h2>
+        <p>
+          Unlock autonomous neural co-pilots with specialized market abilities. Train them to level up their signal accuracy, profit multipliers, and crash shields.
+        </p>
+
+        <div className="forge-vault-counter">
+          <div className="vault-gem-pill">
+            <Gem size={18} className="text-gold gem-icon-pulse" />
+            <span>Vault Reserve: <strong className="font-mono text-gold font-bold">{gemBalance} 💎 GEMS</strong></span>
+          </div>
+
           <button 
             type="button" 
             className="btn-earn-gems-link"
-            onClick={() => setActiveTab('missions')}
+            onClick={() => { playSound('click'); setActiveTab('missions'); }}
           >
-            Earn More Gems in Missions &rarr;
+            <span>Earn More 💎 Gems in Quests</span>
+            <ArrowRight size={14} />
           </button>
         </div>
       </div>
 
-      {/* Agents Catalog Grid */}
+      {/* 2. Agents Grid */}
       <div className="forge-agents-grid">
-        {AGENTS_CATALOG.map((agent) => {
+        {agentsCatalog.map((agent) => {
           const isUnlocked = unlockedAgentIds.includes(agent.id);
           const isActive = activeAgentId === agent.id;
           const rarity = RARITY_COLORS[agent.rarity] || RARITY_COLORS.COMMON;
-          const canAfford = gemBalance >= agent.unlockCostGems;
+          const canAffordUnlock = gemBalance >= agent.unlockCostGems;
+          const canAffordTrain = gemBalance >= (agent.trainCostGems || 20);
 
           return (
             <div 
               key={agent.id} 
-              className={`forge-agent-card ${isActive ? 'active-equipped' : ''} ${isUnlocked ? 'unlocked' : 'locked'}`}
+              className={`forge-companion-card ${isActive ? 'active-equipped' : ''} ${isUnlocked ? 'unlocked' : 'locked'}`}
               style={{ borderColor: isActive ? agent.avatarGlow : (isUnlocked ? rarity.border : 'rgba(255, 255, 255, 0.08)') }}
             >
               {/* Card Top Strip */}
@@ -75,93 +92,136 @@ export default function AgentForgePage({ setActiveTab }) {
 
                 {isActive ? (
                   <span className="equipped-badge">
-                    <Check size={12} /> ACTIVE ON TRADING FLOOR
+                    <Check size={12} /> ACTIVE CO-PILOT
                   </span>
                 ) : isUnlocked ? (
                   <span className="unlocked-badge">
                     <CheckCircle2 size={12} /> RECRUITED
                   </span>
                 ) : (
-                  <span className="gem-cost-tag">
+                  <span className="gem-cost-tag font-mono font-bold">
                     <Gem size={13} className="text-gold" /> {agent.unlockCostGems} GEMS
                   </span>
                 )}
               </div>
 
               {/* Center Agent Orb Showcase */}
-              <div className="forge-orb-showcase">
-                <AgentOrb color={agent.orbColor || 'violet'} size="lg" pulse={isActive} />
-                <div className="forge-agent-name-row">
+              <div className="companion-orb-showcase">
+                <div className="orb-frame-wrap">
+                  <AgentOrb color={agent.orbColor || 'violet'} size="lg" pulse={isActive} />
+                  {isUnlocked && (
+                    <span className="comp-card-lvl-badge font-mono">
+                      LVL {agent.level || 1} / 10
+                    </span>
+                  )}
+                </div>
+
+                <div className="companion-name-col">
                   <h3>{agent.name}</h3>
-                  <span className="forge-agent-title">{agent.title}</span>
+                  <span className="companion-title-tag">{agent.title}</span>
+                  <span className="companion-spec-text text-cyan">{agent.specialty}</span>
                 </div>
               </div>
 
-              {/* Bio & Core Skill Highlight */}
-              <div className="forge-skill-box">
+              {/* Companion Bio & Skill */}
+              <div className="companion-skill-box">
                 <div className="skill-title-row">
-                  <Zap size={14} className="text-cyan" />
-                  <span className="skill-name">{agent.skillName}</span>
+                  <Zap size={14} className="text-gold" />
+                  <span className="skill-name font-bold">{agent.skillName}</span>
                 </div>
                 <p className="skill-desc">{agent.skillDescription}</p>
               </div>
 
-              {/* Perks List */}
-              <div className="forge-perks-list">
-                {agent.perks.map((perk, pIdx) => (
-                  <div key={pIdx} className="perk-bullet">
-                    <CheckCircle2 size={13} className="text-emerald" />
-                    <span>{perk}</span>
+              {/* Radar Stats */}
+              <div className="companion-stats-bars font-mono text-xs">
+                <div className="c-stat-row">
+                  <span className="lbl">Signal Accuracy</span>
+                  <div className="bar-track">
+                    <div className="bar-fill cyan" style={{ width: `${agent.stats.accuracy}%` }} />
                   </div>
-                ))}
-              </div>
-
-              {/* Radar Stats Grid */}
-              <div className="agent-radar-stats">
-                <div className="r-stat">
-                  <span className="r-lbl">Signal Accuracy</span>
-                  <div className="r-bar-bg">
-                    <div className="r-bar-fill cyan" style={{ width: `${agent.stats.accuracy}%` }} />
-                  </div>
-                  <span className="r-val font-mono">{agent.stats.accuracy}%</span>
+                  <span className="val text-cyan font-bold">{agent.stats.accuracy}%</span>
                 </div>
 
-                <div className="r-stat">
-                  <span className="r-lbl">Profit Multiplier</span>
-                  <div className="r-bar-bg">
-                    <div className="r-bar-fill gold" style={{ width: `${Math.min(100, agent.stats.profitBonus * 2.5 + 20)}%` }} />
+                <div className="c-stat-row">
+                  <span className="lbl">Profit Multiplier</span>
+                  <div className="bar-track">
+                    <div className="bar-fill gold" style={{ width: `${Math.min(100, agent.stats.profitBonus * 2.2 + 20)}%` }} />
                   </div>
-                  <span className="r-val font-mono">+{agent.stats.profitBonus}%</span>
+                  <span className="val text-gold font-bold">+{agent.stats.profitBonus}%</span>
                 </div>
 
-                <div className="r-stat">
-                  <span className="r-lbl">Crash Shield</span>
-                  <div className="r-bar-bg">
-                    <div className="r-bar-fill emerald" style={{ width: `${agent.stats.shield}%` }} />
+                <div className="c-stat-row">
+                  <span className="lbl">Crash Shield</span>
+                  <div className="bar-track">
+                    <div className="bar-fill emerald" style={{ width: `${agent.stats.shield}%` }} />
                   </div>
-                  <span className="r-val font-mono">{agent.stats.shield}%</span>
+                  <span className="val text-emerald font-bold">{agent.stats.shield}%</span>
                 </div>
               </div>
 
-              {/* Action Button */}
+              {/* Skill Tree Matrix Preview */}
+              {agent.skillTree && (
+                <div className="skill-tree-preview-box">
+                  <span className="tree-lbl">UNLOCKABLE ABILITIES:</span>
+                  <div className="tree-perks-list">
+                    {agent.skillTree.map((perk, pIdx) => {
+                      const isPerkUnlocked = isUnlocked && (agent.level || 1) >= perk.levelReq;
+                      return (
+                        <div key={pIdx} className={`perk-node-item ${isPerkUnlocked ? 'unlocked' : 'locked'}`}>
+                          <span className="perk-lvl-tag font-mono">Lv {perk.levelReq}</span>
+                          <span className="perk-name font-bold">{perk.name}:</span>
+                          <span className="perk-desc text-dim">{perk.desc}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Card Footer Actions */}
               <div className="forge-card-footer">
                 {isActive ? (
-                  <button type="button" className="btn-equipped-disabled" disabled>
-                    Currently Equipped
-                  </button>
+                  <div className="equipped-actions-split">
+                    <button type="button" className="btn-equipped-disabled" disabled>
+                      Currently Equipped
+                    </button>
+                    {agent.level < 10 && (
+                      <button 
+                        type="button" 
+                        className={`btn-train-companion ${canAffordTrain ? 'can-train' : 'cannot-train'}`}
+                        onClick={() => trainCompanion(agent.id)}
+                        title={`Train to Level ${agent.level + 1} for ${agent.trainCostGems || 20} Gems`}
+                      >
+                        <Flame size={14} className="text-gold" />
+                        <span>TRAIN (LVL {agent.level + 1})</span>
+                      </button>
+                    )}
+                  </div>
                 ) : isUnlocked ? (
-                  <button 
-                    type="button" 
-                    className="btn-equip-agent"
-                    onClick={() => unlockAgent(agent)}
-                  >
-                    <span>EQUIP {agent.name.toUpperCase()}</span>
-                    <ArrowRight size={15} />
-                  </button>
+                  <div className="equipped-actions-split">
+                    <button 
+                      type="button" 
+                      className="btn-equip-agent"
+                      onClick={() => unlockAgent(agent)}
+                    >
+                      <span>EQUIP CO-PILOT</span>
+                      <ArrowRight size={14} />
+                    </button>
+                    {agent.level < 10 && (
+                      <button 
+                        type="button" 
+                        className={`btn-train-companion ${canAffordTrain ? 'can-train' : 'cannot-train'}`}
+                        onClick={() => trainCompanion(agent.id)}
+                      >
+                        <Flame size={14} className="text-gold" />
+                        <span>TRAIN ({agent.trainCostGems || 20}💎)</span>
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   <button 
                     type="button" 
-                    className={`btn-unlock-gems ${canAfford ? 'can-afford' : 'cannot-afford'}`}
+                    className={`btn-unlock-gems ${canAffordUnlock ? 'can-afford' : 'cannot-afford'}`}
                     onClick={() => unlockAgent(agent)}
                   >
                     <Gem size={15} />

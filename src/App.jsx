@@ -3,11 +3,14 @@ import { GameProvider, useGame } from './context/GameContext';
 import LoginPage from './pages/LoginPage';
 import { useNexora } from './context/NexoraContext';
 import Navbar from './components/Navbar';
+import CommandCenterPage from './pages/CommandCenterPage';
 import TradingFloorPage from './pages/TradingFloorPage';
 import AgentForgePage from './pages/AgentForgePage';
 import MissionsPage from './pages/MissionsPage';
 import PortfolioPage from './pages/PortfolioPage';
 import LeaderboardPage from './pages/LeaderboardPage';
+import LevelUpModal from './components/LevelUpModal';
+import FloatingCombatText from './components/FloatingCombatText';
 
 function ToastContainer() {
   const { toast } = useGame();
@@ -23,10 +26,12 @@ function ToastContainer() {
 }
 
 function MainApp() {
-  const [activeTab, setActiveTab] = useState('trading'); // 'trading' | 'forge' | 'missions' | 'portfolio' | 'leaderboard'
+  const [activeTab, setActiveTab] = useState('command'); // 'command' | 'trading' | 'forge' | 'missions' | 'portfolio' | 'leaderboard'
 
   const renderActiveScreen = () => {
     switch (activeTab) {
+      case 'command':
+        return <CommandCenterPage setActiveTab={setActiveTab} />;
       case 'trading':
         return <TradingFloorPage setActiveTab={setActiveTab} />;
       case 'forge':
@@ -38,13 +43,13 @@ function MainApp() {
       case 'leaderboard':
         return <LeaderboardPage />;
       default:
-        return <TradingFloorPage setActiveTab={setActiveTab} />;
+        return <CommandCenterPage setActiveTab={setActiveTab} />;
     }
   };
 
   return (
     <div className="stockbuilders-stock-game-app">
-      {/* Top Navbar with Dual Tokens ($ Cash + 💎 Gems) & Active Agent */}
+      {/* Top Navbar with Level/XP, Dual Tokens ($ Cash + 💎 Gems), Sound Toggle & Active Co-Pilot */}
       <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
 
       {/* Main Game Screen Canvas */}
@@ -52,7 +57,9 @@ function MainApp() {
         {renderActiveScreen()}
       </main>
 
-      {/* Global Notifications */}
+      {/* Global Game Feedback Overlays */}
+      <FloatingCombatText />
+      <LevelUpModal />
       <ToastContainer />
     </div>
   );
